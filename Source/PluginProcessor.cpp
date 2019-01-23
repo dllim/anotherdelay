@@ -23,83 +23,68 @@
    OutputDebugStringW( os_.str().c_str() );  \
 }
 
-String AnotherDelayAudioProcessor::paramGain("gain");
-String AnotherDelayAudioProcessor::paramDelayTime("time");
-String AnotherDelayAudioProcessor::paramFeedback("feedback");
-String AnotherDelayAudioProcessor::paramWetDry("wet/dry");
-String AnotherDelayAudioProcessor::paramCutOff("cutoff");
-String AnotherDelayAudioProcessor::paramCutOffHi("cutoffhi");
-String AnotherDelayAudioProcessor::paramFlutterFreq("flutterfreq");
-String AnotherDelayAudioProcessor::paramFlutterDepth("flutterdepth");
-String AnotherDelayAudioProcessor::paramWowFreq("wowfreq");
-String AnotherDelayAudioProcessor::paramWowDepth("wowdepth");
+AudioProcessorValueTreeState::ParameterLayout AnotherDelayAudioProcessor::createParameterLayout()
+{
+	std::vector<std::unique_ptr<RangedAudioParameter>> params;
+
+	{
+		using FloatParamPair = std::pair<Identifier, AudioParameterFloat*&>;
+
+		for (auto p : { FloatParamPair(Parameters::gain, gain),
+						FloatParamPair(Parameters::delaytime, delaytime),
+						FloatParamPair(Parameters::feedback, feedback),
+						FloatParamPair(Parameters::mix, mix),
+						FloatParamPair(Parameters::lowpass, lowpass),
+						FloatParamPair(Parameters::highpass, highpass),
+						FloatParamPair(Parameters::flutterfreq, flutterfreq),
+						FloatParamPair(Parameters::flutterdepth, flutterdepth),
+						FloatParamPair(Parameters::wowfreq, wowfreq),
+						FloatParamPair(Parameters::wowdepth, wowdepth),
+						FloatParamPair(Parameters::roomsize, roomsize),
+						FloatParamPair(Parameters::damping, damping),
+						FloatParamPair(Parameters::width, width),
+			
+			})
+		{
+			auto& info = Parameters::parameterInfoMap[p.first];
+			auto param = std::make_unique<AudioParameterFloat>(p.first.toString(), info.labelName, NormalisableRange<float>(info.lowerLimit, info.upperLimit, info.interval), info.defaultValue);
+
+			p.second = param.get();
+			params.push_back(std::move(param));
+		}
+	}
+
+	{
+		auto& info = Parameters::parameterInfoMap[Parameters::reverbenabled];
+		auto param = std::make_unique<AudioParameterFloat>(Parameters::reverbenabled.toString(), info.labelName, NormalisableRange<float>(info.lowerLimit, info.upperLimit, info.interval), info.defaultValue);
+
+		reverbenabled = param.get();
+		params.push_back(std::move(param));
+	}
+	return { params.begin(), params.end() };
+}
+
 //==============================================================================
 AnotherDelayAudioProcessor::AnotherDelayAudioProcessor()
-#ifndef JucePlugin_PreferredChannelConfigurations
-	: /*AudioProcessor(BusesProperties()
-#if ! JucePlugin_IsMidiEffect
-#if ! JucePlugin_IsSynth
-		.withInput("Input", AudioChannelSet::stereo(), true)
-#endif
-		.withOutput("Output", AudioChannelSet::stereo(), true)
-#endif
-	)*/
-#endif
-delayTime(2.0),
-gain(-3.0),
-feedback(-20.0),
-lastInputGain(0.0),
-lastFeedbackGain(0.0),
-mix(0.5),
-flutterfreq(0.0),
-flutterdepth(0.0),
+	: state(*this, nullptr, "PARAMETERS", createParameterLayout()),
 
-lowPassFilter0(),
-lowPassFilter1(),
-hiPassFilter0(),
-hiPassFilter1(),
-hiShelfFilter0(),
-hiShelfFilter1(),
-hiShelfFilter2(),
-hiShelfFilter3(),
-lowPassFilter2(),
-lowPassFilter3(),
-allPassFilter0(),
-allPassFilter1()
+#ifndef JucePlugin_PreferredChannelConfigurations
+	 AudioProcessor(BusesProperties()
+		#if ! JucePlugin_IsMidiEffect
+		#if ! JucePlugin_IsSynth
+			.withInput("Input", AudioChannelSet::stereo(), true)
+		#endif
+			.withOutput("Output", AudioChannelSet::stereo(), true)
+		#endif
+		)
+#endif
 
 {
-		mUndoManager = new UndoManager();
-		mState = new AudioProcessorValueTreeState(*this, mUndoManager);
-
-		mState->createAndAddParameter(paramDelayTime, "Delay Time", TRANS("Delay Time"), NormalisableRange <float>(1, 4, 1.0), 2, nullptr, nullptr);
-		mState->createAndAddParameter(paramGain, "Gain", TRANS("Gain"), NormalisableRange <float>(-30.0, 0.0, 0.3), -9.0, nullptr, nullptr);
-		mState->createAndAddParameter(paramFeedback, "Feedback", TRANS("Feedback"), NormalisableRange <float>(-45.0, -12.0, 0.3), -30.0, nullptr, nullptr);
-		mState->createAndAddParameter(paramWetDry, "Wet/Dry", TRANS("Wet/Dry"), NormalisableRange <float>(0.0, 1.0, 0.1), 0.5, nullptr, nullptr);
-		mState->createAndAddParameter(paramCutOff, "CutOffLowPass", TRANS("CutOffLowPass"), NormalisableRange <float>(400.0f, 21000.0f), 15000.0f, nullptr, nullptr);
-		mState->createAndAddParameter(paramCutOffHi, "CutOffHiPass", TRANS("CutOffHiPass"), NormalisableRange <float>(1.0f, 3000.0f), 300.0f, nullptr, nullptr);
-		mState->createAndAddParameter(paramFlutterFreq, "Flutter Frequency", TRANS("Flutter Frequency"), NormalisableRange <float>(2.5f, 5.0f, 0.01), 2.5f, nullptr, nullptr);
-		mState->createAndAddParameter(paramFlutterDepth, "Flutter Depth", TRANS("Flutter Depth"), NormalisableRange <float>(-0.2f, 0.2f, 0.01f), 0.0f, nullptr, nullptr);
-		mState->createAndAddParameter(paramWowFreq, "Wow Frequency", TRANS("Wow Frequency"), NormalisableRange <float>(0.0f, 2.5f, 0.01), 0.0f, nullptr, nullptr);
-		mState->createAndAddParameter(paramWowDepth, "Wow Depth", TRANS("Wow Depth"), NormalisableRange <float>(-0.2f, 0.2f, 0.01f), 0.0f, nullptr, nullptr);
-
-		mState->addParameterListener(paramDelayTime, this);
-		mState->addParameterListener(paramGain, this);
-		mState->addParameterListener(paramFeedback, this);
-		mState->addParameterListener(paramWetDry, this);
-		mState->addParameterListener(paramCutOff, this);
-		mState->addParameterListener(paramCutOffHi, this);
-		mState->addParameterListener(paramFlutterFreq, this);
-		mState->addParameterListener(paramFlutterDepth, this);
-		mState->addParameterListener(paramWowFreq, this);
-		mState->addParameterListener(paramWowDepth, this);
-
-		mState->state = ValueTree("SimpleDelay");
+	addParameterListeners();
 }
 
 AnotherDelayAudioProcessor::~AnotherDelayAudioProcessor()
 {
-	mState = nullptr;
-	mUndoManager = nullptr;
 
 }
 
@@ -173,7 +158,6 @@ void AnotherDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 	const int numInputChannels = getTotalNumInputChannels();
 	const int delayBufferSize = sampleRate * 10;
 	mSampleRate = sampleRate;
-	//DBOUT("sample rate: " << mSampleRate <<  "..\n");
 
 	delayBuffer.setSize(numInputChannels, delayBufferSize, false, true);
 	wetBuffer.setSize(numInputChannels, samplesPerBlock, false, true);
@@ -183,19 +167,10 @@ void AnotherDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 	spec.maximumBlockSize = samplesPerBlock;
 	spec.numChannels = getTotalNumOutputChannels();
 
-//	lowPassFilter.prepare(spec);
-//	lowPassFilter.reset();
-
 	lowPassFilter0.setCoefficients(IIRCoefficients::makeLowPass(44100.0f, 15000.0f));
 	lowPassFilter1.setCoefficients(IIRCoefficients::makeLowPass(44100.0f, 15000.0f));
 	hiPassFilter0.setCoefficients(IIRCoefficients::makeHighPass(44100.0f, 300.0f));
 	hiPassFilter1.setCoefficients(IIRCoefficients::makeHighPass(44100.0f, 300.0f));
-	//hiShelfFilter0.setCoefficients(IIRCoefficients::makeHighShelf(44100.0f, 5500.0f, 1.0f, 30.0f));
-	//hiShelfFilter1.setCoefficients(IIRCoefficients::makeHighShelf(44100.0f, 5500.0f, 1.0f, 30.0f));
-	//hiShelfFilter2.setCoefficients(IIRCoefficients::makeHighShelf(44100.0f, 8000.0f, 1.0f, 0.001));
-	//hiShelfFilter3.setCoefficients(IIRCoefficients::makeHighShelf(44100.0f, 8000.0f, 1.0f, 0.001));
-	//allPassFilter0.setCoefficients(IIRCoefficients::makeAllPass(44100.0, 8000.0f));
-	//allPassFilter1.setCoefficients(IIRCoefficients::makeAllPass(44100.0, 8000.0f));
 
 	oscFlutterL.setFrequency(1.0);
 	oscFlutterL.setSampleRate(44100.0);
@@ -205,6 +180,11 @@ void AnotherDelayAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 	oscWowL.setSampleRate(44100.0);
 	oscWowR.setFrequency(1.0);
 	oscWowR.setSampleRate(44100.0);
+
+	reverbL.setSampleRate(sampleRate);
+	reverbR.setSampleRate(sampleRate);
+
+	updateProcessing();
 }
 
 void AnotherDelayAudioProcessor::releaseResources()
@@ -213,32 +193,73 @@ void AnotherDelayAudioProcessor::releaseResources()
     // spare memory, etc.
 }
 
-void AnotherDelayAudioProcessor::parameterChanged(const String & parameterID, float newValue)
+void AnotherDelayAudioProcessor::addParameterListeners()
 {
-	if (parameterID == paramGain) {
-		gain = newValue;
-	}
-	if (parameterID == paramDelayTime) {
-		delayTime = newValue;
-	}
-	if (parameterID == paramFeedback) {
-		feedback = newValue;
-	}
-	if (parameterID == paramWetDry) {
-		mix = newValue;
-	}
-	if (parameterID == paramFlutterFreq) {
-		flutterfreq = newValue;
-	}
-	if (parameterID == paramFlutterDepth) {
-		flutterdepth = newValue;
-	} 
-	if (parameterID == paramWowFreq) {
-		wowfreq = newValue;
-	}
-	if (parameterID == paramWowDepth) {
-		wowdepth = newValue;
-	}
+	auto& state = getValueTreeState();
+
+	state.addParameterListener(Parameters::gain.toString(), this);
+	state.addParameterListener(Parameters::delaytime.toString(), this);
+	state.addParameterListener(Parameters::feedback.toString(), this);
+	state.addParameterListener(Parameters::mix.toString(), this);
+	state.addParameterListener(Parameters::lowpass.toString(), this);
+	state.addParameterListener(Parameters::highpass.toString(), this);
+	state.addParameterListener(Parameters::flutterfreq.toString(), this);
+	state.addParameterListener(Parameters::flutterdepth.toString(), this);
+	state.addParameterListener(Parameters::wowfreq.toString(), this);
+	state.addParameterListener(Parameters::wowdepth.toString(), this);
+	state.addParameterListener(Parameters::reverbenabled.toString(), this);
+	state.addParameterListener(Parameters::roomsize.toString(), this);
+	state.addParameterListener(Parameters::damping.toString(), this);
+	state.addParameterListener(Parameters::width.toString(), this);
+}
+
+
+void AnotherDelayAudioProcessor::parameterChanged(const String& parameterID, float newValue)
+{
+
+	if (parameterID == Parameters::gain.toString())
+		*gain = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::delaytime.toString())
+		*delaytime = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::feedback.toString())
+		*feedback = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::mix.toString())
+		*mix = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::lowpass.toString())
+		*lowpass = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::highpass.toString())
+		*highpass = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::flutterfreq.toString())
+		*flutterfreq = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::flutterdepth.toString())
+		*flutterdepth = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::wowfreq.toString())
+		*wowfreq = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::wowdepth.toString())
+		*wowdepth = newValue;
+		updateProcessing();
+
+	if (parameterID == Parameters::roomsize.toString())
+		*roomsize = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::damping.toString())
+		*damping = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::width.toString())
+		*width = newValue;
+		updateProcessing();
+	if (parameterID == Parameters::reverbenabled.toString())
+		*reverbenabled = newValue;
+		updateProcessing();
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
@@ -265,6 +286,30 @@ bool AnotherDelayAudioProcessor::isBusesLayoutSupported (const BusesLayout& layo
 }
 #endif
 
+void AnotherDelayAudioProcessor::updateProcessing()
+{
+	theDelayEngine.gainInput = (float)(Decibels::decibelsToGain((float)*gain));
+	theDelayEngine.delayTimeInput = *delaytime;
+	theDelayEngine.feedbackInput = (float)(Decibels::decibelsToGain((float)*feedback));
+	theDelayEngine.mixInput = *mix;
+
+	updateOscillator(0);
+	updateOscillator(1);
+
+	updateFilter();
+
+	reverbLParameters.roomSize = *roomsize;
+	reverbLParameters.damping = *damping;
+	reverbLParameters.width = *width;
+	reverbL.setParameters(reverbLParameters);
+
+	reverbRParameters.roomSize = *roomsize;
+	reverbRParameters.damping = *damping;
+	reverbRParameters.width = *width;
+	reverbR.setParameters(reverbRParameters);
+
+}
+
 void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages)
 {
 	ScopedNoDenormals noDenormals;
@@ -273,10 +318,6 @@ void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBu
 
 	for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
 		buffer.clear(i, 0, buffer.getNumSamples());
-
-	const float gainInput = pow(10, (gain.get() / 20));
-	const float feedbackInput = pow(10, (feedback.get() / 20));
-	const float wetDryInput = mix.get();
 
 	const int delayBufferLength = delayBuffer.getNumSamples();
 	const int bufferLength = buffer.getNumSamples();
@@ -298,10 +339,10 @@ void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBu
 
 		// fill delayBuffer
 		if (channel == 0)
-			fillBuffer(0, bufferLength, delayBufferLength, bufferReadPtr, dBWritePositionL, gainInput, lastInputGain);
+			fillBuffer(0, bufferLength, delayBufferLength, bufferReadPtr, dBWritePositionL, theDelayEngine.gainInput, lastInputGain);
 		else if (channel == 1)
-			fillBuffer(1, bufferLength, delayBufferLength, bufferReadPtr, dBWritePositionR, gainInput, lastInputGain);
-		lastInputGain = gainInput;
+			fillBuffer(1, bufferLength, delayBufferLength, bufferReadPtr, dBWritePositionR, theDelayEngine.gainInput, lastInputGain);
+		lastInputGain = theDelayEngine.gainInput;
 
 		float writeValue = {};
 		updateFilter(); // update values for high-pass & low-pass filters
@@ -311,6 +352,9 @@ void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBu
 		/* sample processing loop */
 		for (int i = 0; i < bufferLength; i++)
 		{
+			//if (parametersNeedUpdating.test_and_set())
+			//	updateProcessing();
+
 			int k;
 			float delayTimeInSamples;
 			double bpm;
@@ -327,7 +371,7 @@ void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBu
 				k = dBWritePositionR;
 
 			/* get delay time from user*/
-			float delayTimeInput = (120000.0 / delayTime.get()) / bpm; //half, quarter, dotted, eighth note
+			float delayTimeInput = (120000.0 / theDelayEngine.delayTimeInput) / bpm; //half, quarter, dotted, eighth note
 			/* calculate modulation length in samples*/
 
 			delayTimeInSamples = ((float)mSampleRate * delayTimeInput / 1000.0);
@@ -347,7 +391,7 @@ void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBu
 				}
 				/*get values for interpolation*/
 				writeValue = calcWriteValue(channel, delayBuffer, k, i, delayBufferLength, delayTimeInSamples, mod);
-				*wetBufferWritePtr = writeValue * sqrt(wetDryInput);
+				*wetBufferWritePtr = writeValue * sqrt(theDelayEngine.mixInput);
 				/* low & hi pass filter */
 				if (channel == 0)
 				{
@@ -361,12 +405,20 @@ void AnotherDelayAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBu
 				/* wave shaping k = 2*/
 				*wetBufferWritePtr = (1 / atan(2)) * atan(2 * *wetBufferWritePtr);
 
+				/* reverb */
+				if (*reverbenabled == 1)
+				{
+					if (channel == 0)
+						reverbL.processMono(wetBufferWritePtr, 1);
+					else if (channel == 1)
+						reverbR.processMono(wetBufferWritePtr, 1);
+				}
 				/* mix wet and dry signals */
-				*bufferWritePtr = *wetBufferWritePtr + (sqrt(1 - wetDryInput) * cleansig);
+				*bufferWritePtr = *wetBufferWritePtr + (sqrt(1 - theDelayEngine.mixInput) * cleansig);
 
 				/* send feedback from output buffer to delay buffer*/
-				delayBuffer.addFromWithRamp(channel, (k + i) % delayBufferLength, bufferWritePtr, 1, feedbackInput, lastFeedbackGain);
-				lastFeedbackGain = feedbackInput;
+				delayBuffer.addFromWithRamp(channel, (k + i) % delayBufferLength, bufferWritePtr, 1, theDelayEngine.feedbackInput, lastFeedbackGain);
+				lastFeedbackGain = theDelayEngine.feedbackInput;
 			}
 			bufferWritePtr++;
 			wetBufferWritePtr++;	
@@ -423,7 +475,7 @@ void AnotherDelayAudioProcessor::fillBuffer(int channel, const int bufferLength,
 void AnotherDelayAudioProcessor::fetchDelay(AudioBuffer<float>& buffer, int channel, const int feedbackBufferLength,
 	const int delayBufferLength, const float* feedbackBufferPtr, const float* delayBufferPtr, float startGain, float endGain)
 {
-	int delayTimeInput = delayTime.get();
+	int delayTimeInput = *delaytime;
 	int delayTimeInSamples = (mSampleRate * delayTimeInput / 1000.0);
 	const int readPosition = (int)(delayBufferLength + dBWritePositionL - delayTimeInSamples) % delayBufferLength;
 
@@ -457,7 +509,7 @@ void AnotherDelayAudioProcessor::sendFeedback(AudioBuffer<float>& buffer, int ch
 
 AudioProcessorValueTreeState& AnotherDelayAudioProcessor::getValueTreeState()
 {
-	return *mState;
+	return state;
 }
 
 bool AnotherDelayAudioProcessor::hasEditor() const
@@ -472,41 +524,40 @@ AudioProcessorEditor* AnotherDelayAudioProcessor::createEditor()
 
 void AnotherDelayAudioProcessor::updateFilter()
 {
-	float freq = *mState->getRawParameterValue("cutoff");
-	float freqhi = *mState->getRawParameterValue("cutoffhi");
+	//float freq = state.getRawParameterValue("cutoff");
+	//float freqhi = state.getRawParameterValue("cutoffhi");
 
-	//*lowPassFilter.state = *dsp::IIR::Coefficients<float>::makeLowPass(44100, freq, res);
-	lowPassFilter0.setCoefficients(IIRCoefficients::makeLowPass(44100.0f, freq));
-	lowPassFilter1.setCoefficients(IIRCoefficients::makeLowPass(44100.0f, freq));
-	hiPassFilter0.setCoefficients(IIRCoefficients::makeHighPass(44100.0f, freqhi));
-	hiPassFilter1.setCoefficients(IIRCoefficients::makeHighPass(44100.0f, freqhi));
+	lowPassFilter0.setCoefficients(IIRCoefficients::makeLowPass(44100.0f, *lowpass));
+	lowPassFilter1.setCoefficients(IIRCoefficients::makeLowPass(44100.0f, *lowpass));
+	hiPassFilter0.setCoefficients(IIRCoefficients::makeHighPass(44100.0f, *highpass));
+	hiPassFilter1.setCoefficients(IIRCoefficients::makeHighPass(44100.0f, *highpass));
 }
 //==============================================================================
 void AnotherDelayAudioProcessor::getStateInformation (MemoryBlock& destData)
 {
 	MemoryOutputStream stream(destData, false);
-	mState->state.writeToStream(stream);
+	state.state.writeToStream(stream);
 }
 
 void AnotherDelayAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
 	ValueTree tree = ValueTree::readFromData(data, sizeInBytes);
 	if (tree.isValid()) {
-		mState->state = tree;
+		state.state = tree;
 	}
 }
 
 double AnotherDelayAudioProcessor::updateOscillator(int channel)
 {
 	auto target = 0.0;
-	auto flutterDepth = flutterdepth.get() * 0.5;
-	auto wowDepth = wowdepth.get() * 0.5;
+	auto flutterDepth = *flutterdepth * 0.5;
+	auto wowDepth = *wowdepth * 0.5;
 	auto totalDepth = flutterDepth + wowDepth;
 	auto followSpeed = 1.0;
 
 	if (channel == 0)
 	{
-		auto oscFlutterLValue = oscFlutterL.nextSample(flutterfreq.get());
+		auto oscFlutterLValue = oscFlutterL.nextSample(*flutterfreq);
 		if (flutterDepth < 0.0)
 		{
 			flutterDepth *= -1.0;
@@ -514,7 +565,7 @@ double AnotherDelayAudioProcessor::updateOscillator(int channel)
 		}
 		target += flutterDepth * oscFlutterLValue;
 
-		auto oscWowLValue = oscWowL.nextSample(wowfreq.get());
+		auto oscWowLValue = oscWowL.nextSample(*wowfreq);
 		if (wowDepth < 0.0)
 		{
 			wowDepth *= -1.0;
@@ -532,7 +583,7 @@ double AnotherDelayAudioProcessor::updateOscillator(int channel)
 	}
 	else if (channel == 1)
 	{ 
-		auto oscFlutterRValue = oscFlutterR.nextSample(flutterfreq.get());
+		auto oscFlutterRValue = oscFlutterR.nextSample(*flutterfreq);
 		if (flutterDepth < 0.0)
 		{
 			flutterDepth *= -1.0;
@@ -540,7 +591,7 @@ double AnotherDelayAudioProcessor::updateOscillator(int channel)
 		}
 		target += flutterDepth * oscFlutterRValue;
 
-		auto oscWowRValue = oscWowR.nextSample(wowfreq.get());
+		auto oscWowRValue = oscWowR.nextSample(*wowfreq);
 		if (wowDepth < 0.0)
 		{
 			wowDepth *= -1.0;
@@ -566,6 +617,7 @@ double AnotherDelayAudioProcessor::updateOscillator(int channel)
 }
 
 
+
 //==============================================================================
 // This creates new instances of the plugin..
 AudioProcessor* JUCE_CALLTYPE createPluginFilter()
@@ -576,11 +628,6 @@ AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 
 /*
 
-Upsample by placing a zero after every input sample, resulting in a buffer 2x the original size
-Filter that buffer to remove the aliasing
-process my buffer (delay, interpolation etc)
-Filter that buffer again
-Downsample by removing every other sample
 
 
 */

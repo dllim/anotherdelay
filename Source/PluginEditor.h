@@ -17,6 +17,7 @@
 /**
 */
 class AnotherDelayAudioProcessorEditor : public AudioProcessorEditor
+									
 {
 public:
     AnotherDelayAudioProcessorEditor (AnotherDelayAudioProcessor&);
@@ -25,6 +26,7 @@ public:
     //==============================================================================
     void paint (Graphics&) override;
     void resized() override;
+	bool getReverbToggleState() { reverbEnabledButton->getToggleState(); };
 
 private:
     // This reference is provided as a quick way for your editor to
@@ -41,6 +43,25 @@ private:
 	ScopedPointer<Slider> flutterDepthSlider;
 	ScopedPointer<Slider> wowFreqSlider;
 	ScopedPointer<Slider> wowDepthSlider;
+	
+	ScopedPointer<TextButton> reverbEnabledButton;
+	ScopedPointer<Slider> roomSizeSlider;
+	ScopedPointer<Slider> dampingSlider;
+	ScopedPointer<Slider> widthSlider;
+
+	ScopedPointer<Label> delayTimeLabel;
+	ScopedPointer<Label> gainLabel;
+	ScopedPointer<Label> feedbackLabel;
+	ScopedPointer<Label> wetDryLabel;
+	ScopedPointer<Label> filterCutOffLabel;
+	ScopedPointer<Label> filterCutOffLabelHi;
+	ScopedPointer<Label> flutterFreqLabel;
+	ScopedPointer<Label> flutterDepthLabel;
+	ScopedPointer<Label> wowFreqLabel;
+	ScopedPointer<Label> wowDepthLabel;
+	ScopedPointer<Label> roomSizeLabel;
+	ScopedPointer<Label> dampingLabel;
+	ScopedPointer<Label> widthLabel;
 
 	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> delayTimeAttachment;
 	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> gainAttachment;
@@ -53,5 +74,15 @@ private:
 	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> wowFreqAttachment;
 	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> wowDepthAttachment;
 	
+	ScopedPointer<AudioProcessorValueTreeState::ButtonAttachment> reverbEnabledAttachment;
+	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> roomSizeAttachment;
+	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> dampingAttachment;
+	ScopedPointer<AudioProcessorValueTreeState::SliderAttachment> widthAttachment;
+
+	juce::Rectangle<int> delayRectangle;
+	juce::Rectangle<int> filterRectangle;
+	juce::Rectangle<int> modRectangle;
+	juce::Rectangle<int> reverbRectangle;
+
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AnotherDelayAudioProcessorEditor)
 };

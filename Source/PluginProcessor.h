@@ -11,13 +11,62 @@
 #pragma once
 
 #include "../JuceLibraryCode/JuceHeader.h"
+#include <map>;
 #include "Oscillator.h"
 #include "Util.h"
 
 //==============================================================================
 /**
 */
-class AnotherDelayAudioProcessor : public AudioProcessor, public AudioProcessorValueTreeState::Listener
+
+namespace Parameters
+{
+	static const Identifier gain { "gain" };
+	static const Identifier delaytime{ "delay time" };
+	static const Identifier feedback{ "feedback" };
+	static const Identifier mix{ "mix" };
+	static const Identifier lowpass{ "lowpass" };
+	static const Identifier highpass{ "highpass" };
+	static const Identifier flutterfreq{ "flutter frequency" };
+	static const Identifier flutterdepth{ "flutter depth" };
+	static const Identifier wowfreq{ "wow frequency" };
+	static const Identifier wowdepth{ "wow depth" };
+	static const Identifier reverbenabled{ "reverb enabled" };
+	static const Identifier roomsize{ "room size" };
+	static const Identifier damping{ "damping" };
+	static const Identifier width{ "width" };
+
+	struct ParameterInfo
+	{
+		String labelName;
+		float defaultValue;
+		float lowerLimit;
+		float upperLimit;
+		float interval;
+	};
+
+	static std::map<Identifier, ParameterInfo> parameterInfoMap
+	{
+		{ gain, { "Gain", -9.0f, -30.0f, 0.0f, 0.3f}},
+		{ delaytime, {"Delay Time", 2, 1, 4, 1}},
+		{feedback, {"Feedback", -30.0f,-45.0f, -12.0f, 0.3f}},
+		{mix, {"Mix", 0.5f, 0.0f, 1.0f, 0.1f}},
+		{lowpass, {"Lowpass", 15000.0f, 400.0f, 21000.0f, 0.01f}},
+		{highpass, {"Highpass", 300.0f, 1.0f, 3000.0f, 0.01f}},
+		{flutterfreq, {"Flutter Frequency", 2.5f, 2.5f, 5.0f, 0.01f}},
+		{flutterdepth, {"Flutter Depth", 0.0f, -0.2f, 0.2f, 0.01f}},
+		{wowfreq, {"Wow Frequency",0.0f, 0.0f, 2.5f, 0.01}},
+		{wowdepth, {"Wow Depth",0.0f, -0.2f, 0.2f, 0.01f}},
+		{reverbenabled, {"Reverb Enabled", 1.f, 0.f, 1.f, 1}},
+		{roomsize, {"Room Size", 0.5f, 0.f, 1.f, 0.01f}},
+		{damping, {"Damping", 0.5f, 0.f, 1.f, 0.01f}},
+		{width, {"Width", 0.5f, 0.f, 1.f, 0.01f}},
+	};
+}
+
+class AnotherDelayAudioProcessor : public AudioProcessor,
+								   private AudioProcessorValueTreeState::Listener
+								   
 {
 public:
 	//==============================================================================
@@ -74,24 +123,15 @@ public:
 
 	float AnotherDelayAudioProcessor::calcWriteValue(int channel, AudioBuffer<float>& buffer, int k, int i, int delayBufferLength, float delayTimeInSamples, float mod);
 
-	//float AnotherDelayAudioProcessor::linInterp(float x1, float x2, float y1, float y2, float x);
-
-	//float AnotherDelayAudioProcessor::cubicInterp(int channel, float delayTimeInSamples, float delayTimeFloor, float floorValue0, float floorValue, float floorValue1, float floorValue2);
-
 	double AnotherDelayAudioProcessor::updateOscillator(int channel);
 
-	static String paramDelayTime;
-	static String paramGain;
-	static String paramFeedback;
-	static String paramWetDry;
-	static String paramCutOff;
-	static String paramCutOffHi;
-	static String paramFlutterFreq;
-	static String paramFlutterDepth;
-	static String paramWowFreq;
-	static String paramWowDepth;
+	void updateProcessing();
 
 private:
+
+	void addParameterListeners();
+
+	AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
 	AudioSampleBuffer delayBuffer;
 	AudioSampleBuffer wetBuffer;
@@ -105,17 +145,27 @@ private:
 	double oscWowRPosition = 0.0;
 	double mod{ 0 };
 
-	ScopedPointer<AudioProcessorValueTreeState> mState;
-	ScopedPointer<UndoManager>	mUndoManager;
+	AudioProcessorValueTreeState state;
 
-	Atomic<float> delayTime;
-	Atomic<float> gain;
-	Atomic <float> feedback;
-	Atomic <float> mix;
-	Atomic <double> flutterfreq;
-	Atomic <double> flutterdepth;
-	Atomic <double> wowfreq;
-	Atomic <double> wowdepth;
+	AudioParameterFloat* gain;
+	AudioParameterFloat* delaytime;
+	AudioParameterFloat* feedback;
+	AudioParameterFloat* mix;
+	AudioParameterFloat* lowpass;
+	AudioParameterFloat* highpass;
+	AudioParameterFloat* flutterfreq;
+	AudioParameterFloat* flutterdepth;
+	AudioParameterFloat* wowfreq;
+	AudioParameterFloat* wowdepth;
+	AudioParameterFloat* roomsize;
+	AudioParameterFloat* damping;
+	AudioParameterFloat* width;
+	AudioParameterFloat* reverbenabled;
+
+	Reverb reverbL;
+	Reverb reverbR;
+	Reverb::Parameters reverbLParameters;
+	Reverb::Parameters reverbRParameters;
 
 	float lastInputGain;
 	float lastFeedbackGain;
@@ -126,19 +176,18 @@ private:
 	IIRFilter lowPassFilter1; /* channel 1 */
 	IIRFilter hiPassFilter0; /* channel 0 */
 	IIRFilter hiPassFilter1; /* channel 1 */
-	IIRFilter hiShelfFilter0;
-	IIRFilter hiShelfFilter1;
-	IIRFilter hiShelfFilter2;
-	IIRFilter hiShelfFilter3;
-	IIRFilter lowPassFilter2;
-	IIRFilter lowPassFilter3;
-	IIRFilter allPassFilter0;
-	IIRFilter allPassFilter1;
 
 	Oscillator oscFlutterL;
 	Oscillator oscFlutterR;
 	Oscillator oscWowL;
 	Oscillator oscWowR;
+
+	struct delayEngine
+	{
+		float gainInput, delayTimeInput, feedbackInput, mixInput;
+	};
+
+	delayEngine theDelayEngine;
 
 	//==============================================================================
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AnotherDelayAudioProcessor)

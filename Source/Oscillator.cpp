@@ -36,3 +36,8 @@ double Oscillator::nextSample(double frequency) {
 	}
 	return 0.5 + 0.5 * sin(mPhase * 4.0 * acos(0.0));
 }
+
+/* Adapted from 'Flutterbird' by Tesselode, which helps to facilitate the wow and flutter functionality 
+for the delay.
+https://github.com/tesselode
+*/
